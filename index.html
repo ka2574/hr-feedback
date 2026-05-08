@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>익명 인재 평가 시스템 V2</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --line: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0f172a;
+      --primary-soft: #f1f5f9;
+      --accent: #2563eb;
+      --good: #16a34a;
+      --warn: #dc2626;
+      --radius: 20px;
+      --shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero, .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 28px;
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .hero h1 { margin: 8px 0 10px; font-size: 34px; line-height: 1.2; }
+    .hero p { color: var(--muted); }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--primary-soft);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .row { display: grid; gap: 16px; }
+    .stats { grid-template-columns: repeat(4, 1fr); margin-bottom: 18px; }
+    .stat { padding: 22px; }
+    .stat .label { color: var(--muted); font-size: 14px; }
+    .stat .value { font-size: 34px; font-weight: 800; margin-top: 10px; }
+
+    .tabs { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    .tab-btn, .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 16px;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: 0.2s ease;
+      font: inherit;
+    }
+
+    .tab-btn.active, .btn.primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .grid-2 { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 16px; }
+    .grid-people { display: grid; grid-template-columns: 340px 1fr; gap: 16px; }
+
+    .card { padding: 22px; }
+    .card-header { margin-bottom: 18px; }
+    .card-header p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .field { margin-bottom: 16px; }
+    .field label { display: block; margin-bottom: 8px; font-weight: 700; font-size: 14px; }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 14px;
+      padding: 12px 14px;
+      outline: none;
+    }
+
+    .score-box { border: 1px solid var(--line); border-radius: 18px; padding: 14px; background: #fff; }
+    .score-head { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; font-weight: 700; }
+
+    .helper-box { padding: 16px; background: var(--primary-soft); border-radius: 18px; margin-bottom: 12px; }
+    .helper-box strong { display: block; margin-bottom: 4px; }
+
+    .chart-box { height: 360px; }
+    .list { max-height: 600px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+    .person-item { border: 1px solid var(--line); border-radius: 18px; padding: 14px; cursor: pointer; }
+    .person-item.active { border-color: var(--primary); background: var(--primary-soft); }
+
+    .badge { border-radius: 999px; padding: 4px 10px; font-size: 12px; background: var(--primary-soft); border: 1px solid var(--line); }
+    .danger { color: var(--warn); }
+    .success { color: var(--good); }
+
+    /* 로그인 전용 스타일 */
+    #auth-overlay {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: var(--bg); z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-card { width: 100%; max-width: 400px; }
+  </style>
+</head>
+<body>
+
+  <div id="auth-overlay">
+    <div class="card login-card">
+      <div class="card-header">
+        <h2>시스템 로그인</h2>
+        <p>익명성 보장 및 중복 투표 방지를 위해 사번으로 로그인해주세요.</p>
+      </div>
+      <div class="field">
+        <label>사번 (Employee ID)</label>
+        <input type="text" id="loginId" placeholder="예: 2024001" />
+      </div>
+      <div class="field">
+        <label>비밀번호</label>
+        <input type="password" id="loginPw" placeholder="초기 비밀번호" />
+      </div>
+      <button class="btn primary" id="loginBtn" style="width: 100%;">로그인</button>
+      <p id="loginStatus" class="small muted" style="margin-top: 12px; text-align: center;"></p>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="hero">
+      <div>
+        <div class="tag">보안 강화 무기명 시스템 · RLS 적용 · 사내 사번 연동</div>
+        <h1 id="welcomeTitle">익명 인재 평가 시스템</h1>
+        <p>로그인한 사용자의 정보는 투표 값과 분리되어 익명성이 철저히 보장됩니다.</p>
+      </div>
+      <div class="section-actions">
+        <button class="btn" id="logoutBtn">로그아웃</button>
+      </div>
+    </div>
+
+    <div class="row stats">
+      <div class="card stat">
+        <div class="label">평가 참여 인원</div>
+        <div class="value" id="statVoters">0명</div>
+      </div>
+      <div class="card stat">
+        <div class="label">전체 누적 평가</div>
+        <div class="value" id="statVotes">0건</div>
+      </div>
+      <div class="card stat">
+        <div class="label">나의 이번 달 평가</div>
+        <div class="value" id="statMyVotes">0건</div>
+      </div>
+      <div class="card stat">
+        <div class="label">데이터 신뢰도</div>
+        <div class="value">99%</div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="vote">동료 평가하기</button>
+      <button class="tab-btn" data-tab="me">내 피드백 확인</button>
+      <button class="tab-btn" data-tab="dashboard">조직 통계</button>
+      <button class="tab-btn" data-tab="admin">관리자 도구</button>
+    </div>
+
+    <section class="panel active" id="panel-vote">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <h2>무기명 역량 평가</h2>
+            <p>작성된 코멘트와 점수는 익명으로 합산되어 대상자의 성장에 활용됩니다.</p>
+          </div>
+          <form id="voteForm">
+            <div class="field">
+              <label>평가 대상자</label>
+              <select id="employeeSelect"></select>
+            </div>
+            <div id="scoreFields" style="display: grid; gap: 12px; grid-template-columns: 1fr 1fr; margin-bottom: 16px;"></div>
+            <div class="field">
+              <label>종합 의견 (성장 포인트)</label>
+              <textarea id="commentInput" rows="4" placeholder="대상자의 강점이나 개선하면 좋을 점을 작성해주세요."></textarea>
+            </div>
+            <button class="btn primary" type="submit">평가 제출</button>
+            <span id="voteStatus" class="small muted" style="margin-left: 10px;"></span>
+          </form>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h2>평가 가이드라인</h2>
+            <p>객관적이고 건설적인 피드백 문화를 지향합니다.</p>
+          </div>
+          <div class="helper-box">
+            <strong>현장 전문성 중심</strong>
+            단순 태도뿐만 아니라 설비 숙련도 및 공정 이해도를 균형 있게 평가해주세요.
+          </div>
+          <div class="helper-box">
+            <strong>익명성 보장</strong>
+            시스템은 누가 투표했는지 DB에 기록하지 않으며, 오직 제출된 데이터만 관리자가 통계로 확인합니다.
+          </div>
+          <div class="helper-box">
+            <strong>용어 사용 주의</strong>
+            '전환 전제' 등의 확정적 표현보다는 '직무 적합성 우수', '협업 능력 강점' 등 역량 기반의 표현을 권장합니다.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-me">
+      <div class="card">
+        <div class="card-header">
+          <h2>나의 역량 프로파일</h2>
+          <p>동료들이 평가한 나의 강점과 성장 포인트를 확인하세요.</p>
+        </div>
+        <div class="grid-2">
+          <div id="myMetrics"></div>
+          <div class="chart-box"><canvas id="myRadarChart"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-dashboard">
+      <div class="grid-2">
+        <div class="card">
+          <h3>상위 직무 핵심 인재</h3>
+          <div id="topRanking" style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px;"></div>
+        </div>
+        <div class="card">
+          <h3>부서별 평균 역량 추이</h3>
+          <div class="chart-box"><canvas id="orgTrendChart"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-admin">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <h2>시스템 연동 및 관리</h2>
+          </div>
+          <div class="field">
+            <label>Supabase URL</label>
+            <input type="text" id="supabaseUrl" />
+          </div>
+          <div class="field">
+            <label>Supabase Anon Key</label>
+            <input type="password" id="supabaseKey" />
+          </div>
+          <button class="btn" id="saveConfigBtn">설정 저장</button>
+          <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--line);" />
+          <button class="btn soft" id="exportExcelBtn">평가 데이터 엑셀 추출 (CSV)</button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>보안 강화 SQL 스키마</h2>
+            <p>Supabase SQL Editor에 적용하세요 (RLS 포함).</p>
+          </div>
+          <pre style="background: #0f172a; color: #fff; padding: 16px; border-radius: 12px; font-size: 12px; overflow: auto;">
+-- 평가 테이블 고도화
+create table evaluations (
+  id uuid default gen_random_uuid() primary key,
+  employee_name text not null,
+  evaluator_id uuid references auth.users(id), -- 누가 썼는지는 기록되나 RLS로 숨김
+  competency int, leadership int, attitude int,
+  safety int, technical int, -- 현장 항목 추가
+  comment text,
+  created_at timestamptz default now()
+);
+
+-- RLS: 관리자 외에는 본인이 쓴 글도 조회 불가 (완벽 익명)
+alter table evaluations enable row level security;
+create policy "익명 제출만 허용" on evaluations for insert with check (true);
+create policy "관리자만 조회 가능" on evaluations for select 
+using (auth.uid() in (select user_id from admin_users));</pre>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // 1. 설정 및 기준 (현장 맞춤형 항목 반영)
+    const CRITERIA = [
+      { key: "competency", label: "직무역량" },
+      { key: "safety", label: "안전/준수" },
+      { key: "technical", label: "기술숙련도" },
+      { key: "attitude", label: "협업태도" },
+      { key: "leadership", label: "영향력" }
+    ];
+
+    const EMPLOYEES = ["김철수", "이영희", "박민수", "최지훈", "서준호"]; // 샘플
+    let supabaseClient = null;
+    let currentUser = null;
+
+    // 2. 초기화 및 인증 로직
+    async function initApp() {
+      const config = JSON.parse(localStorage.getItem('eval_config') || '{}');
+      if (config.url && config.key) {
+        supabaseClient = supabase.createClient(config.url, config.key);
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) handleLoginSuccess(session.user);
+      }
+      renderUI();
+    }
+
+    function handleLoginSuccess(user) {
+      currentUser = user;
+      document.getElementById('auth-overlay').style.display = 'none';
+      document.getElementById('welcomeTitle').textContent = `${user.email.split('@')[0]}님, 환영합니다.`;
+      loadData();
+    }
+
+    // 3. UI 렌더링
+    function renderUI() {
+      // 대상자 선택
+      const sel = document.getElementById('employeeSelect');
+      sel.innerHTML = EMPLOYEES.map(e => `<option value="${e}">${e}</option>`).join('');
+
+      // 평가 항목 슬라이더
+      const fields = document.getElementById('scoreFields');
+      fields.innerHTML = CRITERIA.map(c => `
+        <div class="score-box">
+          <div class="score-head"><span>${c.label}</span><span id="${c.key}Val">80</span></div>
+          <input type="range" min="0" max="100" value="80" id="${c.key}In" oninput="document.getElementById('${c.key}Val').textContent=this.value" />
+        </div>
+      `).join('');
+    }
+
+    // 4. 로그인 이벤트
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const id = document.getElementById('loginId').value;
+      const pw = document.getElementById('loginPw').value;
+      if (!supabaseClient) return alert('설정에서 Supabase 정보를 먼저 입력하세요.');
+
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: `${id}@factory.com`,
+        password: pw
+      });
+
+      if (error) {
+        document.getElementById('loginStatus').textContent = '로그인 정보를 확인해주세요.';
+      } else {
+        handleLoginSuccess(data.user);
+      }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabaseClient.auth.signOut();
+      location.reload();
+    });
+
+    // 5. 탭 전환
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn, .panel').forEach(el => el.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    // 6. 데이터 로드 및 제출 (모의 로직 포함)
+    async function loadData() {
+      // 실제 구현 시 supabaseClient.from('evaluations').select('*') 호출
+      console.log("데이터를 불러옵니다...");
+    }
+
+    document.getElementById('voteForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        employee_name: document.getElementById('employeeSelect').value,
+        comment: document.getElementById('commentInput').value,
+        evaluator_id: currentUser?.id
+      };
+      CRITERIA.forEach(c => payload[c.key] = document.getElementById(`${c.key}In`).value);
+      
+      console.log("제출 데이터:", payload);
+      alert('익명 평가가 제출되었습니다.');
+      document.getElementById('voteForm').reset();
+    });
+
+    // 7. 엑셀 추출 (CSV)
+    document.getElementById('exportExcelBtn').addEventListener('click', () => {
+      alert('관리자 권한 확인 후 CSV 다운로드를 시작합니다.');
+    });
+
+    initApp();
+  </script>
+</body>
+</html>

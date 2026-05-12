@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>익명 인재 평가 시스템</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --line: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0f172a;
+      --primary-soft: #f1f5f9;
+      --accent: #2563eb;
+      --radius: 20px;
+      --shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Pretendard", "Apple SD Gothic Neo", sans-serif; background: var(--bg); color: var(--text); }
+    
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+    .hero, .card { background: var(--card); border: 1px solid var(--line); border-radius: 28px; box-shadow: var(--shadow); }
+    .hero { padding: 28px; display: flex; gap: 18px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 18px; }
+    .hero h1 { margin: 8px 0 10px; font-size: 34px; }
+    
+    .tabs { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    .tab-btn, .btn { border: 1px solid var(--line); background: #fff; border-radius: 16px; padding: 12px 20px; cursor: pointer; font: inherit; font-weight: 600; transition: 0.2s ease; }
+    .tab-btn.active, .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    
+    .admin-only { display: none; } 
+    .panel { display: none; }
+    .panel.active { display: block; }
+    
+    .card { padding: 30px; }
+    .card-header { margin-bottom: 24px; }
+    .card-header h2, .card-header h3 { margin: 0; font-size: 24px; }
+    .card-header p { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+
+    .field { margin-bottom: 20px; }
+    .field label { display: block; margin-bottom: 10px; font-weight: 700; font-size: 15px; }
+    .field input, .field select, .field textarea {
+      width: 100%; border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 14px 16px; outline: none; font-size: 16px; font-family: inherit;
+    }
+    
+    .grid-person { display: grid; grid-template-columns: 320px 1fr; gap: 24px; height: auto; min-height: 800px; }
+    .side-list { display: flex; flex-direction: column; overflow: hidden; padding: 0; align-self: start; position: sticky; top: 20px; }
+    .search-box { padding: 20px; border-bottom: 1px solid var(--line); }
+    .employee-items { overflow-y: auto; max-height: 700px; padding: 10px; }
+    .emp-item { padding: 16px; border-radius: 14px; cursor: pointer; margin-bottom: 6px; transition: 0.2s; font-weight: 600; border: 1px solid transparent; }
+    .emp-item:hover { background: var(--primary-soft); }
+    .emp-item.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    .main-profile { display: flex; flex-direction: column; gap: 24px; padding: 30px; }
+    .profile-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary-soft); padding-bottom: 15px; }
+    .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    
+    .comment-card { background: var(--primary-soft); padding: 20px; border-radius: 18px; font-size: 15px; margin-bottom: 12px; line-height: 1.6; border-left: 4px solid var(--primary); }
+    .score-box { border: 1px solid var(--line); border-radius: 18px; padding: 16px; background: #fff; margin-bottom: 12px; }
+    .score-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-weight: 800; font-size: 14px; }
+    .chart-box { position: relative; }
+    .trend-box { height: 300px; position: relative; margin-top: 10px; }
+    
+    input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    #auth-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: var(--bg); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+
+  <div id="auth-overlay">
+    <div class="card" style="width: 100%; max-width: 420px; padding: 40px;">
+      <div class="card-header" style="text-align: center;">
+        <h2 style="font-size: 28px;">익명 인재 평가 시스템</h2>
+        <p>로그인 후 공정한 평가를 진행해 주세요.</p>
+      </div>
+      <div class="field">
+        <label>사번 (Employee ID)</label>
+        <input type="text" id="loginId" placeholder="예: 20190005" />
+      </div>
+      <div class="field">
+        <label>비밀번호</label>
+        <input type="password" id="loginPw" placeholder="비밀번호 입력" />
+      </div>
+      <button class="btn primary" id="loginBtn" style="width: 100%; margin-top: 15px; padding: 16px;">로그인</button>
+      <p id="loginStatus" style="color: #dc2626; text-align: center; margin-top: 20px; font-size: 14px; font-weight: bold;"></p>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="hero">
+      <div>
+        <h1 id="welcomeTitle">익명 인재 평가 시스템</h1>
+        <p style="margin:0; color:var(--muted); font-size: 16px;">조직의 건강한 성장을 위해 동료의 역량을 객관적으로 진단합니다.</p>
+      </div>
+      <button class="btn" id="logoutBtn">로그아웃</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="vote">동료 평가하기</button>
+      <button class="tab-btn admin-only" data-tab="person">인물별 보기</button>
+      <button class="tab-btn admin-only" data-tab="dashboard">조직 통계</button>
+      <button class="tab-btn" data-tab="settings">비밀번호 변경</button>
+    </div>
+
+    <section class="panel active" id="panel-vote">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+        <div class="card">
+          <div class="card-header"><h3 style="margin:0;">무기명 역량 평가</h3></div>
+          <form id="voteForm">
+            <div class="field">
+              <label>평가 대상자</label>
+              <input type="text" id="voteEmpSearch" placeholder="🔍 대상자 이름 검색 (예: 김은영)" style="margin-bottom: 8px; background-color: var(--primary-soft); border-color: var(--line);" autocomplete="off" />
+              <select id="employeeSelect"></select>
+            </div>
+            
+            <div id="scoreFields" style="display: grid; gap: 15px; grid-template-columns: 1fr 1fr;"></div>
+            <div class="field" style="margin-top:25px;"><label>종합 의견 (성장 포인트)</label><textarea id="commentInput" rows="4" placeholder="대상자의 구체적인 강점이나 개선 제언..."></textarea></div>
+            <button class="btn primary" type="submit" style="width: 100%; padding: 16px;">익명 평가 제출</button>
+          </form>
+        </div>
+        
+        <div class="card">
+          <div class="card-header"><h3 style="margin:0;">평가 가이드라인</h3></div>
+          <div style="background:var(--primary-soft); padding:16px; border-radius:16px; margin-bottom:12px; font-size:14px; line-height: 1.5;">
+            <strong>🎯 평가 목적 안내</strong><br>조직과 개인의 성장을 위한 역량 진단이며, 공정한 인재 육성과 개발 방향 수립을 목적으로 진행됩니다.
+          </div>
+          <div style="background:var(--primary-soft); padding:16px; border-radius:16px; margin-bottom:12px; font-size:14px; line-height: 1.5;">
+            <strong>🔒 익명성 보장</strong><br>모든 평가는 익명으로 수집되며, 개인 식별 없이 통계 및 종합 결과로만 활용됩니다.
+          </div>
+          <div style="background:var(--primary-soft); padding:16px; border-radius:16px; margin-bottom:12px; font-size:14px; line-height: 1.5;">
+            <strong>📋 평가 기준</strong><br>실제 업무 수행 과정에서 보여진 역량과 협업 경험을 바탕으로 평가해주세요.
+          </div>
+          <div style="background:var(--primary-soft); padding:16px; border-radius:16px; margin-bottom:12px; font-size:14px; line-height: 1.5;">
+            <strong>⚖️ 객관적 평가 요청</strong><br>개인적 친분이나 감정보다는 실제 업무 경험과 관찰된 행동을 기준으로 객관적으로 작성 부탁드립니다.
+          </div>
+          <div style="background:var(--primary-soft); padding:16px; border-radius:16px; font-size:14px; line-height: 1.5;">
+            <strong>💡 건설적인 피드백</strong><br>불필요한 비난보다는 동료가 성장할 수 있도록 구체적인 직무 역량 중심의 표현과 피드백을 권장합니다.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-person">
+      <div class="grid-person">
+        <div class="card side-list">
+          <div class="search-box"><input type="text" id="empSearch" placeholder="직원 이름 검색..." style="width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: 14px; outline: none;"></div>
+          <div id="empList" class="employee-items"></div>
+        </div>
+        <div class="card main-profile" id="profileContent">
+          <div style="text-align: center; margin-top: 150px; color: var(--muted);"><h3>👈 왼쪽 리스트에서 직원을 선택해 주세요.</h3></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-dashboard">
+      <div class="card"><div class="card-header"><h3 style="margin:0;">종합 역량 랭킹 (Top 5)</h3></div><div id="topRanking" style="max-width: 800px;"></div></div>
+    </section>
+
+    <section class="panel" id="panel-settings">
+      <div class="card" style="max-width: 500px; margin: 0 auto;"><div class="card-header"><h3>비밀번호 변경</h3></div>
+        <form id="pwChangeForm">
+          <div class="field"><label>새 비밀번호 (6자리 이상)</label><input type="password" id="newPw" required /></div>
+          <div class="field"><label>비밀번호 확인</label><input type="password" id="newPwConfirm" required /></div>
+          <button class="btn primary" type="submit" style="width: 100%; margin-top: 15px; padding: 16px;">변경 완료</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    Chart.register(ChartDataLabels);
+
+    const SUPABASE_URL = "https://vnlxkigiruqqbotjgopo.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_KMbt8LbWdi5PHG3D_Ml7Eg_atqhmbGW";
+    const ADMIN_ID = "20190005";
+    
+    const CRITERIA = [
+      { key: "performance", label: "업무성과" }, { key: "competency", label: "직무역량" },
+      { key: "communication", label: "협업 및 소통" }, { key: "responsibility", label: "책임감 및 직업윤리" },
+      { key: "safety", label: "안전 및 규정 준수" }, { key: "change_management", label: "변화관리" }
+    ];
+
+    // 가나다 순으로 정렬된 직원 리스트
+    const EMPLOYEES = ["길태우", "김은영", "정지섭", "이태현", "전소정", "유지연", "김민영", "최태산", "이결", "이상덕", "김기준", "박현석", "최기완", "지성규", "오창원", "손현아", "구현정", "김성욱", "김도훈", "고영서", "정기훈", "김중호", "이재훈", "여충엽", "최종한", "강두열", "오태호", "김문선", "전빈", "여유리", "김예찬", "박윤호", "이수정", "홍유택", "이건휘", "강해찬", "정하리", "김규식", "박지호", "최지영", "김경남", "윤경수", "정아름", "양영민", "김명식", "허경희", "이지호", "장석태", "강경기", "김기용", "조원석", "김대민", "백인수", "전명수", "김명일", "박찬일", "송다운", "정도윤", "임병만", "오만석", "양한모", "김왕진", "하승민", "박영목", "홍매", "류근상", "김아린", "이성환", "문형국", "박치호", "안상준", "변상윤", "신재현", "김하을", "김수종", "장규성", "이승연", "김정근", "윤성진", "이준혁", "차유진", "김민권", "이승재", "나리", "김보미", "이수지", "박규현", "정민상", "최동근", "최정협", "한달영", "이지훈", "유희성", "금창성", "허지석", "양용하", "김홍관", "이동건", "장영민", "안세훈", "황상길", "엄준", "박은정"].sort((a, b) => a.localeCompare(b));
+
+    const EMPLOYEE_MAP = {
+      "길태우": "19930571", "김은영": "20140080", "정지섭": "20240018", "이태현": "20250008",
+      "전소정": "20210022", "유지연": "20260006", "김민영": "20260009", "최태산": "20190144",
+      "이결": "20230006", "이상덕": "20240019", "김기준": "20000479", "박현석": "20120030",
+      "최기완": "20190005", "지성규": "20250021", "오창원": "20230005", "손현아": "20260016",
+      "구현정": "20010068", "김성욱": "20070062", "김도훈": "20240020", "고영서": "20260011",
+      "정기훈": "20140078", "김중호": "20160020", "이재훈": "20200014", "여충엽": "20200041",
+      "최종한": "19990302", "강두열": "20180057", "오태호": "20260022", "김문선": "20100026",
+      "전빈": "20190073", "여유리": "20240046", "김예찬": "20260004", "박윤호": "20120057",
+      "이수정": "20110021", "홍유택": "20220067", "이건휘": "20240001", "강해찬": "20240002",
+      "정하리": "20250013", "김규식": "20090101", "박지호": "20180044", "최지영": "20250015",
+      "김경남": "19870005", "윤경수": "19990030", "정아름": "20170013", "양영민": "20190001",
+      "김명식": "20210051", "허경희": "20200009", "이지호": "20260023", "장석태": "19860003",
+      "강경기": "20020523", "김기용": "19990063", "조원석": "19990043", "김대민": "20090038",
+      "백인수": "20090041", "전명수": "20250016", "김명일": "20070042", "박찬일": "20220011",
+      "송다운": "20170010", "정도윤": "20240010", "임병만": "20250026", "오만석": "20020425",
+      "양한모": "20140049", "김왕진": "20190072", "하승민": "20210033", "박영목": "20020003",
+      "홍매": "20110086", "류근상": "20170006", "김아린": "20180041", "이성환": "20170002",
+      "문형국": "20170008", "박치호": "20190162", "안상준": "20210023", "변상윤": "20240043",
+      "신재현": "20260008", "김하을": "20200006", "김수종": "20250001", "장규성": "20250028",
+      "이승연": "20260002", "김정근": "20160024", "윤성진": "20220069", "이준혁": "20230025",
+      "차유진": "20240045", "김민권": "20250024", "이승재": "20250035", "나리": "20250036",
+      "김보미": "20230015", "이수지": "20240022", "박규현": "20250002", "정민상": "20260001",
+      "최동근": "20260003", "최정협": "20240017", "한달영": "20250023", "이지훈": "20190181",
+      "유희성": "20240029", "금창성": "20170054", "허지석": "20250006", "양용하": "20230001",
+      "김홍관": "20040038", "이동건": "20170022", "장영민": "20160005", "안세훈": "20240021",
+      "황상길": "20030200", "엄준": "20260013", "박은정": "20260018"
+    };
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let currentUser = null;
+    let personRadarChart = null;
+    let personTrendChart = null;
+    let orgTrendChart = null;
+
+    async function initApp() {
+      // 1. 로그인 여부와 관계없이 기본 UI 골격 먼저 그리기
+      document.getElementById('scoreFields').innerHTML = CRITERIA.map(c => `
+        <div class="score-box">
+          <div class="score-head"><span>${c.label}</span><div style="display:flex; gap:5px;"><input type="number" id="${c.key}Num" value="80" min="0" max="100" style="width:50px; text-align:center; font-weight:bold; border:1px solid var(--line); border-radius:8px;" oninput="document.getElementById('${c.key}In').value=this.value"><span>점</span></div></div>
+          <input type="range" min="0" max="100" value="80" id="${c.key}In" style="width:100%" oninput="document.getElementById('${c.key}Num').value=this.value">
+        </div>
+      `).join('');
+      renderEmpList(EMPLOYEES);
+
+      // 2. 세션(로그인 상태) 확인
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session) {
+        handleLoginSuccess(session.user);
+      } else {
+        renderVoteEmpList('');
+      }
+    }
+
+    function handleLoginSuccess(user) {
+      currentUser = user;
+      const empId = user.email.split('@')[0];
+      document.getElementById('auth-overlay').style.display = 'none';
+      document.getElementById('welcomeTitle').textContent = `익명 인재 평가 시스템 (${empId}님)`;
+      if (empId === ADMIN_ID) document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'inline-block');
+      
+      // 로그인 완료 후, '본인'을 제외한 리스트로 다시 그리기
+      renderVoteEmpList('');
+    }
+
+    document.getElementById('loginBtn').onclick = async () => {
+      const id = document.getElementById('loginId').value.trim();
+      const pw = document.getElementById('loginPw').value;
+      const status = document.getElementById('loginStatus');
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email: `${id}@factory.com`, password: pw });
+      if (error) status.textContent = "❗ 사번 또는 비밀번호가 틀렸습니다.";
+      else handleLoginSuccess(data.user);
+    };
+
+    function renderVoteEmpList(filterText = '') {
+      let availableEmployees = EMPLOYEES.filter(name => name.includes(filterText));
+      
+      if (currentUser) {
+        const loggedInId = currentUser.email.split('@')[0];
+        availableEmployees = availableEmployees.filter(name => EMPLOYEE_MAP[name] !== loggedInId);
+      }
+
+      const selectEl = document.getElementById('employeeSelect');
+      if (availableEmployees.length > 0) {
+        selectEl.innerHTML = availableEmployees.map(e => `<option value="${e}">${e}</option>`).join('');
+      } else {
+        selectEl.innerHTML = `<option value="">검색 결과가 없습니다.</option>`;
+      }
+    }
+
+    document.getElementById('voteEmpSearch').oninput = (e) => {
+      renderVoteEmpList(e.target.value);
+    };
+
+    function renderEmpList(list) {
+      document.getElementById('empList').innerHTML = list.map(name => `<div class="emp-item" onclick="showPersonProfile('${name}', this)">${name}</div>`).join('');
+    }
+
+    document.getElementById('empSearch').oninput = (e) => {
+      renderEmpList(EMPLOYEES.filter(name => name.includes(e.target.value)));
+    };
+
+    async function showPersonProfile(name, el) {
+      document.querySelectorAll('.emp-item').forEach(i => i.classList.remove('active'));
+      el.classList.add('active');
+
+      const { data: allData } = await supabaseClient.from('evaluations').select('*').order('created_at', { ascending: true });
+      const personData = allData.filter(d => d.employee_name === name);
+      
+      const profileContainer = document.getElementById('profileContent');
+      if (personData.length === 0) {
+        profileContainer.innerHTML = `<div style="text-align:center; padding-top:100px;"><h3>${name}님은 아직 데이터가 없습니다.</h3></div>`;
+        return;
+      }
+
+      const averages = CRITERIA.map(c => (personData.reduce((a,b)=>a+(b[c.key]||0), 0) / personData.length).toFixed(1));
+
+      const scoreListHtml = CRITERIA.map((c, i) => `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 15px; border-bottom: 1px solid var(--line); padding-bottom: 8px;">
+            <span style="color: var(--muted);">${c.label}</span>
+            <span style="font-weight: bold; color: var(--primary);">${averages[i]}점</span>
+        </div>
+      `).join('');
+
+      // 💡 [수정됨] 월별(YYYY-MM)로 묶던 데이터를 연도별(YYYY년)로 묶도록 변경
+      const getYearlyAverages = (dataList) => {
+        const years = {};
+        dataList.forEach(d => {
+          const year = new Date(d.created_at).getFullYear().toString() + '년'; // 예: "2024년"
+          if(!years[year]) years[year] = [];
+          const avg = CRITERIA.reduce((sum, c) => sum + (d[c.key]||0), 0) / CRITERIA.length;
+          years[year].push(avg);
+        });
+        return years;
+      };
+
+      const personYearly = getYearlyAverages(personData);
+      const orgYearly = getYearlyAverages(allData);
+      
+      const yearLabels = Array.from(new Set([...Object.keys(personYearly), ...Object.keys(orgYearly)])).sort();
+      const personPoints = yearLabels.map(y => personYearly[y] ? (personYearly[y].reduce((a,b)=>a+b,0)/personYearly[y].length).toFixed(1) : null);
+      const orgPoints = yearLabels.map(y => orgYearly[y] ? (orgYearly[y].reduce((a,b)=>a+b,0)/orgYearly[y].length).toFixed(1) : null);
+
+      profileContainer.innerHTML = `
+        <div class="profile-header">
+          <h2 style="margin:0;">${name} 인재 프로파일</h2>
+          <span style="background:var(--accent); color:#fff; padding:8px 16px; border-radius:20px; font-weight:bold;">누적 평가 ${personData.length}건</span>
+        </div>
+        <div class="profile-grid">
+          <div class="card" style="box-shadow:none; border:1px solid var(--line); padding: 20px;">
+            <h4 style="margin-top:0;">역량 레이더 및 상세 점수</h4>
+            <div style="display: flex; gap: 15px; align-items: center; flex-direction: column;">
+                <div class="chart-box" style="width: 100%; height: 260px;"><canvas id="personRadar"></canvas></div>
+                <div style="width: 100%; background: var(--bg); padding: 20px; border-radius: 14px;">
+                    ${scoreListHtml}
+                </div>
+            </div>
+          </div>
+          <div>
+            <h4 style="margin-top:0;">최근 피드백</h4>
+            <div id="commentList" style="max-height: 550px; overflow-y: auto;">
+              ${personData.slice().reverse().map(row => row.comment ? `<div class="comment-card">${row.comment}</div>` : '').join('')}
+            </div>
+          </div>
+        </div>
+        <div class="card" style="box-shadow:none; border:1px solid var(--line); margin-top:10px;">
+          <h4 style="margin-top:0;">연도별 평가 점수 추이 (내 점수)</h4>
+          <div class="trend-box"><canvas id="personTrend"></canvas></div>
+        </div>
+        <div class="card" style="box-shadow:none; border:1px solid var(--line); margin-top:10px; background: #f1f5f9;">
+          <h4 style="margin-top:0;">조직 전체 평균 추이 (비교용)</h4>
+          <div class="trend-box"><canvas id="orgTrend"></canvas></div>
+        </div>
+      `;
+
+      if (personRadarChart) personRadarChart.destroy();
+      personRadarChart = new Chart(document.getElementById('personRadar'), {
+        type: 'radar',
+        data: {
+          labels: CRITERIA.map(c => c.label),
+          datasets: [{ label: '현재 평균', data: averages, backgroundColor: 'rgba(37, 99, 235, 0.2)', borderColor: '#2563eb' }]
+        },
+        options: { 
+          plugins: { datalabels: { display: false } }, 
+          scales: { r: { min: 0, max: 100, ticks: { display: false } } }, 
+          maintainAspectRatio: false 
+        }
+      });
+
+      if (personTrendChart) personTrendChart.destroy();
+      personTrendChart = new Chart(document.getElementById('personTrend'), {
+        type: 'line',
+        data: {
+          labels: yearLabels,
+          datasets: [{ label: `${name}님 연도별 점수`, data: personPoints, borderColor: '#2563eb', backgroundColor: '#2563eb', tension: 0.3, fill: false, pointRadius: 5 }]
+        },
+        options: { 
+          plugins: {
+            datalabels: { align: 'bottom', anchor: 'end', color: '#2563eb', font: { weight: 'bold', size: 12 }, formatter: function(value) { return value ? value + '점' : ''; } }
+          },
+          scales: { y: { min: 0, max: 100 } }, 
+          maintainAspectRatio: false 
+        }
+      });
+
+      if (orgTrendChart) orgTrendChart.destroy();
+      orgTrendChart = new Chart(document.getElementById('orgTrend'), {
+        type: 'line',
+        data: {
+          labels: yearLabels,
+          datasets: [{ label: `조직 전체 연도별 평균`, data: orgPoints, borderColor: '#64748b', backgroundColor: '#64748b', tension: 0.3, fill: true, pointRadius: 3, borderDash: [5, 5] }]
+        },
+        options: { 
+          plugins: {
+            datalabels: { align: 'bottom', anchor: 'end', color: '#0f172a', font: { weight: 'bold', size: 12 }, formatter: function(value) { return value ? value + '점' : ''; } }
+          },
+          scales: { y: { min: 0, max: 100 } }, 
+          maintainAspectRatio: false 
+        }
+      });
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.tab-btn, .panel').forEach(el => el.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
+        if(btn.dataset.tab === 'dashboard') loadStats();
+      };
+    });
+
+    document.getElementById('voteForm').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') e.preventDefault();
+    });
+
+    document.getElementById('voteForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const targetName = document.getElementById('employeeSelect').value;
+      if (!targetName) return alert("평가 대상자를 선택해주세요.");
+      
+      const loggedInId = currentUser.email.split('@')[0];
+
+      if (EMPLOYEE_MAP[targetName] === loggedInId) {
+        alert("🚨 자기 자신은 평가할 수 없습니다.");
+        return;
+      }
+
+      const { data: existingData } = await supabaseClient
+        .from('evaluations')
+        .select('id')
+        .eq('evaluator_id', currentUser.id)
+        .eq('employee_name', targetName);
+
+      if (existingData && existingData.length > 0) {
+        alert(`🚨 이미 ${targetName}님에 대한 평가를 제출하셨습니다. (1인당 1회만 평가 가능)`);
+        return; 
+      }
+
+      const payload = { employee_name: targetName, comment: document.getElementById('commentInput').value, evaluator_id: currentUser.id };
+      CRITERIA.forEach(c => payload[c.key] = parseInt(document.getElementById(`${c.key}In`).value));
+      const { error } = await supabaseClient.from('evaluations').insert(payload);
+      if (error) alert("제출 중 오류가 발생했습니다."); else { alert("평가가 성공적으로 제출되었습니다."); location.reload(); }
+    };
+
+    document.getElementById('logoutBtn').onclick = async () => { await supabaseClient.auth.signOut(); location.reload(); };
+
+    document.getElementById('pwChangeForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const pw1 = document.getElementById('newPw').value;
+      if (pw1.length < 6) return alert("6자리 이상 입력해주세요.");
+      if (pw1 !== document.getElementById('newPwConfirm').value) return alert("비밀번호 일치 확인 요망");
+      const { error } = await supabaseClient.auth.updateUser({ password: pw1 });
+      if (error) alert("변경 실패"); else { alert("변경 완료. 재로그인 해주세요."); await supabaseClient.auth.signOut(); location.reload(); }
+    };
+
+    async function loadStats() {
+      const { data } = await supabaseClient.from('evaluations').select('*');
+      if (!data) return;
+      const stats = {};
+      EMPLOYEES.forEach(e => stats[e] = { total: 0, count: 0 });
+      data.forEach(row => {
+        if(stats[row.employee_name]) {
+          const avg = CRITERIA.reduce((sum, c) => sum + (row[c.key]||0), 0) / CRITERIA.length;
+          stats[row.employee_name].total += avg;
+          stats[row.employee_name].count += 1;
+        }
+      });
+      const ranking = EMPLOYEES.map(name => ({
+        name, score: stats[name].count > 0 ? (stats[name].total / stats[name].count).toFixed(1) : 0, votes: stats[name].count
+      })).filter(r => r.votes > 0).sort((a, b) => b.score - a.score).slice(0, 5);
+
+      document.getElementById('topRanking').innerHTML = ranking.map((r, i) => `
+        <div style="margin-bottom: 18px;">
+          <div style="display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px;">
+            <span>${i+1}위. ${r.name} (${r.votes}명 평가)</span><span style="color:var(--accent);">${r.score}점</span>
+          </div>
+          <div style="width: 100%; height: 12px; background: #e5e7eb; border-radius: 10px; overflow: hidden;"><div style="height: 100%; background: var(--primary); width:${r.score}%;"></div></div>
+        </div>
+      `).join('');
+    }
+
+    initApp();
+  </script>
+</body>
+</html>
